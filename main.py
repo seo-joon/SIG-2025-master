@@ -15,7 +15,6 @@ exitThreshold = 0
 dlrPosLimit = 10000
 history_window = 6
 entry_threshold = 0.002
-dlrPosLimit = 10000
 model_bank = [LinearRegression() for _ in range(nInst)]
 trained = [False] * nInst
 
@@ -120,9 +119,6 @@ def getMyPosition(prcSoFar):
     return pair_mean_reversion_positions_corr(
         prcSoFar, PAIRS, lookback=65, scale=9000, zthresh=0.5
     )
-
-
-
 
 
 
@@ -247,3 +243,118 @@ def meanReversionBasic(prcSoFar):
 
     currentPos = newPos
     return currentPos
+
+
+def rollingZRatio(prcSoFar):
+    i, j = 2, 49
+    window = 60
+    entry_z = 1.5
+    exit_z = 0.2
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+
+    def zscore(prices, window):
+        mean = pd.Series(prices).rolling(window).mean().values
+        std = pd.Series(prices).rolling(window).std().values
+        return (prices - mean) / (std + 1e-6)
+
+    norm_i = zscore(prcSoFar[i], window)
+    norm_j = zscore(prcSoFar[j], window)
+    z_ratio = norm_i / (norm_j + 1e-6)
+
+    pos = np.zeros((nInst, nt))
+    in_trade = False
+    direction = 0
+
+    for t in range(window, nt):
+        zi = z_ratio[t]
+        pi, pj = prcSoFar[i, t], prcSoFar[j, t]
+        mi, mj = int(scale / (pi + 1e-6)), int(scale / (pj + 1e-6))
+
+        if not in_trade:
+            if zi > entry_z:
+                pos[i, t] = -mi
+                pos[j, t] = mj
+                in_trade = True
+                direction = -1
+            elif zi < -entry_z:
+                pos[i, t] = mi
+                pos[j, t] = -mj
+                in_trade = True
+                direction = 1
+        else:
+            if abs(zi) < exit_z:
+                in_trade = False
+                direction = 0
+            else:
+                pos[i, t] = direction * -mi
+                pos[j, t] = direction * mj
+
+    for k in [i, j]:
+        pos[k] = np.clip(pos[k], -int(dlr_limit / (prcSoFar[k, -1] + 1e-6)), int(dlr_limit / (prcSoFar[k, -1] + 1e-6)))
+
+    return pos[:, -1].astype(int)
+
+def get_spread(prices_i, prices_j):
+        return np.log(prices_i + 1e-6) - np.log(prices_j + 1e-6)
+
+def zscore(series, window):
+    mean = pd.Series(series).rolling(window).mean().values
+    std = pd.Series(series).rolling(window).std().values
+    return (series - mean) / (std + 1e-6)
+
+def spreadZPairs(prcSoFar):
+    window = 60
+    entry_z = 1.5
+    exit_z = 0.2
+    scale = 9000
+    dlrPosLimit = 10000
+    nInst, nt = prcSoFar.shape
+    pos = np.zeros((nInst, nt))
+    trade_state = [{"in_trade": False, "direction": 0, "entry_prices": (0, 0), "sizes": (0, 0)} for _ in range(24)]
+
+    for a in range(24):
+        i = a
+        j = a + 25
+        spread = get_spread(prcSoFar[i], prcSoFar[j])
+        z = zscore(spread, window)
+        state = trade_state[a]
+
+        for t in range(window, nt):
+            zval = z[t]
+            pi, pj = prcSoFar[i, t], prcSoFar[j, t]
+            mi, mj = int(scale / (pi + 1e-6)), int(scale / (pj + 1e-6))
+
+            if not state["in_trade"]:
+                if zval > entry_z:
+                    pos[i, t] = -mi
+                    pos[j, t] = mj
+                    state["in_trade"] = True
+                    state["direction"] = -1
+                    state["entry_prices"] = (pi, pj)
+                    state["sizes"] = (-mi, mj)
+                elif zval < -entry_z:
+                    pos[i, t] = mi
+                    pos[j, t] = -mj
+                    state["in_trade"] = True
+                    state["direction"] = 1
+                    state["entry_prices"] = (pi, pj)
+                    state["sizes"] = (mi, -mj)
+            else:
+                pos[i, t] = state["sizes"][0]
+                pos[j, t] = state["sizes"][1]
+                entry_pi, entry_pj = state["entry_prices"]
+                size_i, size_j = state["sizes"]
+                pnl = (pi - entry_pi) * size_i + (pj - entry_pj) * size_j
+                if abs(zval) < exit_z and pnl > 0:
+                    state["in_trade"] = False
+                    state["direction"] = 0
+                    state["entry_prices"] = (0, 0)
+                    state["sizes"] = (0, 0)
+
+        for k in [i, j]:
+            pos[k] = np.clip(pos[k], -int(dlrPosLimit / (prcSoFar[k, -1] + 1e-6)), int(dlrPosLimit / (prcSoFar[k, -1] + 1e-6)))
+
+    return pos[:, -1].astype(int)
+
