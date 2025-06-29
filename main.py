@@ -358,3 +358,393 @@ def spreadZPairs(prcSoFar):
 
     return pos[:, -1].astype(int)
 
+
+
+
+def zScoreDefault(prcSoFar):
+    window = 60
+    entry_z = 1.5
+    exit_z = 0.2
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    for i in range(24):
+        a = i
+        b = i + 25
+        if nt < window:
+            continue
+
+        log_a = np.log(prcSoFar[a, -window:])
+        log_b = np.log(prcSoFar[b, -window:])
+
+        X = log_b.reshape(-1, 1)
+        y = log_a
+        model = LinearRegression().fit(X, y)
+        beta = model.coef_[0]
+
+        full_spread = np.log(prcSoFar[a] + 1e-6) - beta * np.log(prcSoFar[b] + 1e-6)
+        spread = full_spread[-window:]
+        mean = np.mean(spread)
+        std = np.std(spread) + 1e-6
+        z = (full_spread[-1] - mean) / std
+
+        price_a = prcSoFar[a, -1]
+        price_b = prcSoFar[b, -1]
+        max_a = int(dlr_limit / (price_a + 1e-6))
+        max_b = int(dlr_limit / (price_b + 1e-6))
+
+        size_a = int(scale / (price_a + 1e-6))
+        size_b = int(scale / (price_b + 1e-6))
+
+        if z > entry_z:
+            positions[a] = -min(size_a, max_a)
+            positions[b] = min(size_b, max_b)
+        elif z < -entry_z:
+            positions[a] = min(size_a, max_a)
+            positions[b] = -min(size_b, max_b)
+
+    return positions.astype(int)
+
+
+
+from sklearn.linear_model import LinearRegression
+from statsmodels.tsa.stattools import adfuller
+
+def betaHedge(prcSoFar):
+    window = 60
+    entry_z = 1.5
+    exit_z = 0.2
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    for i in range(24):
+        a = i
+        b = i + 25
+        if nt < window:
+            continue
+
+        log_a = np.log(prcSoFar[a, -window:])
+        log_b = np.log(prcSoFar[b, -window:])
+
+        X = log_b.reshape(-1, 1)
+        y = log_a
+        model = LinearRegression().fit(X, y)
+        beta = model.coef_[0]
+
+        full_spread = np.log(prcSoFar[a] + 1e-6) - beta * np.log(prcSoFar[b] + 1e-6)
+        spread = full_spread[-window:]
+
+        try:
+            pval = adfuller(spread)[1]
+        except:
+            continue
+
+        if pval > 0.05:
+            continue
+
+        mean = np.mean(spread)
+        std = np.std(spread) + 1e-6
+        z = (full_spread[-1] - mean) / std
+
+        price_a = prcSoFar[a, -1]
+        price_b = prcSoFar[b, -1]
+        max_a = int(dlr_limit / (price_a + 1e-6))
+        max_b = int(dlr_limit / (price_b + 1e-6))
+
+        size_a = int(scale / (price_a + 1e-6))
+        size_b = int(scale / (price_b + 1e-6))
+
+        if z > entry_z:
+            positions[a] = -min(size_a, max_a)
+            positions[b] = min(size_b, max_b)
+        elif z < -entry_z:
+            positions[a] = min(size_a, max_a)
+            positions[b] = -min(size_b, max_b)
+
+    return positions.astype(int)
+
+def adfDefault(prcSoFar):
+    window = 60
+    entry_z = 1.5
+    exit_z = 0.2
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    for i in range(24):
+        a = i
+        b = i + 25
+        if nt < window:
+            continue
+
+        log_a = np.log(prcSoFar[a, -window:])
+        log_b = np.log(prcSoFar[b, -window:])
+
+        X = log_b.reshape(-1, 1)
+        y = log_a
+        model = LinearRegression().fit(X, y)
+        beta = model.coef_[0]
+
+        full_spread = np.log(prcSoFar[a] + 1e-6) - beta * np.log(prcSoFar[b] + 1e-6)
+        spread = full_spread[-window:]
+
+        spread_lag = spread[:-1]
+        spread_ret = np.diff(spread)
+
+        if np.std(spread_lag) == 0:
+            continue
+
+        gamma = np.polyfit(spread_lag, spread_ret, 1)[0]
+        halflife = -np.log(2) / gamma if gamma < 0 else np.inf
+
+        if halflife < 1 or halflife > 100:
+            continue
+
+        mean = np.mean(spread)
+        std = np.std(spread) + 1e-6
+        z = (full_spread[-1] - mean) / std
+
+        price_a = prcSoFar[a, -1]
+        price_b = prcSoFar[b, -1]
+        max_a = int(dlr_limit / (price_a + 1e-6))
+        max_b = int(dlr_limit / (price_b + 1e-6))
+
+        size_a = int(scale / (price_a + 1e-6))
+        size_b = int(scale / (price_b + 1e-6))
+
+        if z > entry_z:
+            positions[a] = -min(size_a, max_a)
+            positions[b] = min(size_b, max_b)
+        elif z < -entry_z:
+            positions[a] = min(size_a, max_a)
+            positions[b] = -min(size_b, max_b)
+
+    return positions.astype(int)
+
+
+
+def shortTermRev(prcSoFar):
+    threshold = 0.04
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < 2:
+        return positions.astype(int)
+
+    returns = (prcSoFar[:, -1] - prcSoFar[:, -2]) / (prcSoFar[:, -2] + 1e-6)
+
+    for i in range(nInst):
+        price = prcSoFar[i, -1]
+        size = int(scale / (price + 1e-6))
+        max_size = int(dlr_limit / (price + 1e-6))
+
+        if returns[i] > threshold:
+            positions[i] = -min(size, max_size)
+        elif returns[i] < -threshold:
+            positions[i] = min(size, max_size)
+
+    return positions.astype(int)
+
+def recentAvg(prcSoFar):
+    window = 10
+    threshold = 0.01
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < window + 1:
+        return positions.astype(int)
+
+    recent_prices = prcSoFar[:, -window-1:-1]
+    mean_price = np.mean(recent_prices, axis=1)
+    price = prcSoFar[:, -1]
+    gap = (price - mean_price) / (mean_price + 1e-6)
+
+    for i in range(nInst):
+        p = price[i]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if gap[i] > threshold:
+            positions[i] = -min(size, max_size)
+        elif gap[i] < -threshold:
+            positions[i] = min(size, max_size)
+
+    return positions.astype(int)
+
+
+def RSI(prcSoFar):
+    window = 14
+    upper_threshold = 70
+    lower_threshold = 30
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < window + 1:
+        return positions.astype(int)
+
+    delta = np.diff(prcSoFar[:, -window-1:], axis=1)
+    gain = np.maximum(delta, 0)
+    loss = -np.minimum(delta, 0)
+    avg_gain = np.mean(gain, axis=1)
+    avg_loss = np.mean(loss, axis=1) + 1e-6
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+
+    price = prcSoFar[:, -1]
+
+    for i in range(nInst):
+        p = price[i]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if rsi[i] > upper_threshold:
+            positions[i] = -min(size, max_size)
+        elif rsi[i] < lower_threshold:
+            positions[i] = min(size, max_size)
+
+    return positions.astype(int)
+
+# good potential
+def MACD(prcSoFar):
+    fast_period = 12
+    slow_period = 26
+    signal_period = 9
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < slow_period + signal_period:
+        return positions.astype(int)
+
+    price = prcSoFar[:, -1]
+    macd = np.zeros(nInst)
+    signal = np.zeros(nInst)
+
+    for i in range(nInst):
+        fast_ema = pd.Series(prcSoFar[i]).ewm(span=fast_period).mean().values
+        slow_ema = pd.Series(prcSoFar[i]).ewm(span=slow_period).mean().values
+        macd_line = fast_ema - slow_ema
+        signal_line = pd.Series(macd_line).ewm(span=signal_period).mean().values
+        macd[i] = macd_line[-1]
+        signal[i] = signal_line[-1]
+
+    divergence = macd - signal
+
+    for i in range(nInst):
+        p = price[i]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if divergence[i] > 0:
+            positions[i] = min(size, max_size)
+        elif divergence[i] < 0:
+            positions[i] = -min(size, max_size)
+
+    return positions.astype(int)
+
+
+# potential
+def autoCorr(prcSoFar):
+    window = 20
+    lag = 1
+    threshold = 0.2
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < window + lag:
+        return positions.astype(int)
+
+    for i in range(nInst):
+        series = prcSoFar[i, -window - lag:]
+        x = series[:-lag]
+        y = series[lag:]
+        x_mean = np.mean(x)
+        y_mean = np.mean(y)
+        num = np.sum((x - x_mean) * (y - y_mean))
+        denom = np.sqrt(np.sum((x - x_mean)**2) * np.sum((y - y_mean)**2)) + 1e-6
+        corr = num / denom
+
+        p = prcSoFar[i, -1]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if corr > threshold:
+            positions[i] = min(size, max_size)
+        elif corr < -threshold:
+            positions[i] = -min(size, max_size)
+
+    return positions.astype(int)
+
+
+def volSpikes(prcSoFar):
+    window = 20
+    spike_threshold = 2.0
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < window + 1:
+        return positions.astype(int)
+
+    returns = np.diff(prcSoFar[:, -window-1:], axis=1) / (prcSoFar[:, -window-1:-1] + 1e-6)
+    vol = np.std(returns[:, :-1], axis=1)
+    last_return = returns[:, -1]
+    spike = np.abs(last_return) / (vol + 1e-6)
+
+    price = prcSoFar[:, -1]
+
+    for i in range(nInst):
+        p = price[i]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if spike[i] > spike_threshold:
+            positions[i] = -min(size, max_size) if last_return[i] > 0 else min(size, max_size)
+
+    return positions.astype(int)
+
+
+from scipy.stats import skew, kurtosis
+
+def skewTest(prcSoFar):
+    window = 30
+    skew_thresh = 1.0
+    kurt_thresh = 3.5
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < window + 1:
+        return positions.astype(int)
+
+    returns = np.diff(prcSoFar[:, -window-1:], axis=1) / (prcSoFar[:, -window-1:-1] + 1e-6)
+
+    for i in range(nInst):
+        s = skew(returns[i])
+        k = kurtosis(returns[i], fisher=False)
+        p = prcSoFar[i, -1]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if s > skew_thresh and k > kurt_thresh:
+            positions[i] = -min(size, max_size)
+        elif s < -skew_thresh and k > kurt_thresh:
+            positions[i] = min(size, max_size)
+
+    return positions.astype(int)
