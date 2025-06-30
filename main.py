@@ -12,9 +12,10 @@ mean_reverting_ids = [2, 5, 11, 18, 37]
 
 entryThreshold = 0.03
 exitThreshold = 0
-dlrPosLimit = 10000
 history_window = 6
 entry_threshold = 0.002
+
+dlrPosLimit = 10000
 model_bank = [LinearRegression() for _ in range(nInst)]
 trained = [False] * nInst
 
@@ -127,9 +128,10 @@ def getMyPosition(prcSoFar):
 ==================================================
 '''
 
-
+# potensh
 def linearRegression(prcSoFar):
     global currentPos, model_bank, trained
+    target = set(range(50))-{20,43,47}
     (nins, nt) = prcSoFar.shape
     newPos = np.zeros(nins)
 
@@ -138,7 +140,7 @@ def linearRegression(prcSoFar):
 
     returns = (prcSoFar[:, 1:nt] - prcSoFar[:, :nt - 1]) / prcSoFar[:, :nt - 1]
 
-    for i in range(nins):
+    for i in target:
         X = np.column_stack([returns[i, j:nt - 1 - history_window + j] for j in range(history_window)])
         y = returns[i, history_window:]
 
@@ -167,12 +169,13 @@ def linearRegression(prcSoFar):
         raw_size = max_pos * confidence
         size = int(np.clip(raw_size, 0, max_pos))
 
-        factor = 1
+        factor = 0.5
         if pred > entry_threshold * factor:
             newPos[i] = size
 
     currentPos = newPos
     return currentPos
+
 
 # dailyReturnsMeanReversion
 def dailyReturnsMeanReversion(prcSoFar):
@@ -688,6 +691,44 @@ def autoCorr(prcSoFar):
             positions[i] = -min(size, max_size)
 
     return positions.astype(int)
+
+def autoCorr2(prcSoFar):
+    window = 20
+    target = set(range(50))-{0,1,2,4,6,16,19,20,25,27,30,33,35,43,44,47}-{3,8,15,18,37,38,40}-{5,7,9,13}-{10,28}#-{32,46}
+    #print(f"{set([0, 3, 8, 10, 15, 17, 18, 19, 24, 26, 28, 32, 34, 35, 36, 37, 38, 40, 41, 44, 45, 46, 47]).intersection(set(range(50))-{0,1,2,4,6,16,19,20,25,27,30,33,35,43,44,47}-{3,8,15,18,37,38,40}-{5,7,9,13}-{10,28})}")
+    #target = {32, 34, 36, 41, 45, 46, 17, 24, 26}-{32,46}
+    #target = {17,26}-{26}
+    lag = 1
+    threshold = 0.2
+    scale = 9000
+    dlr_limit = 10000
+    nInst, nt = prcSoFar.shape
+    positions = np.zeros(nInst)
+
+    if nt < window + lag:
+        return positions.astype(int)
+
+    for i in target:
+        series = prcSoFar[i, -window - lag:]
+        x = series[:-lag]
+        y = series[lag:]
+        x_mean = np.mean(x)
+        y_mean = np.mean(y)
+        num = np.sum((x - x_mean) * (y - y_mean))
+        denom = np.sqrt(np.sum((x - x_mean)**2) * np.sum((y - y_mean)**2)) + 1e-6
+        corr = num / denom
+
+        p = prcSoFar[i, -1]
+        size = int(scale / (p + 1e-6))
+        max_size = int(dlr_limit / (p + 1e-6))
+
+        if corr > threshold:
+            positions[i] = min(size, max_size)
+        elif corr < -threshold:
+            positions[i] = -min(size, max_size)
+
+    return positions.astype(int)
+
 
 
 def volSpikes(prcSoFar):
